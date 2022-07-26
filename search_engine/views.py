@@ -1,6 +1,7 @@
 from django.shortcuts import render
 from rest_framework.views import APIView
-from .services import elastic_query_service, boolean_query_service
+from .services import elastic_query_service, boolean_query_service, transformer_query_service, tf_ids_query_service, \
+    word_embedding_query_service
 from .services import cluster_service, classification_service
 
 
@@ -16,6 +17,8 @@ class QueryView(APIView):
             'Elastic Query': elastic_query_service.query(query),
             'Boolean Query': boolean_query_service.query(query),
             'Transformer Query': transformer_query_service.query(query),
+            'TF IDF Query': tf_ids_query_service.query(query),
+            'Word Embedding Query': word_embedding_query_service.query(query),
         }
         classification_result = classification_service.predict_text_class(query)
         clustering_result = cluster_service.predict_text_cluster([query])
