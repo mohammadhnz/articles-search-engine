@@ -40,6 +40,7 @@ class WORDEMBEDDINGQueryService:
         self.average_vector = None
         self.articles = []
         self.articles_ids = {}
+        self.articles_index_map = {}
         self._pre_process()
 
     def _remove_special_characters(self, text):
@@ -56,11 +57,14 @@ class WORDEMBEDDINGQueryService:
         return [sentence.lower() for sentence in sentences]
 
     def _pre_process(self):
+        i = 0
         for key, item in self.data.items():
             sentences = self._prepare_text(item['abstract'])
             self.articles += sentences
             for sentence in sentences:
                 self.articles_ids[sentence] = item['paperId']
+                self.articles_index_map[sentence] = i
+                i += 1
 
         self.model = fasttext.load_model(os.path.dirname(__file__) + '/../../articles_model.bin')
         self.average_vector = np.load(os.path.dirname(__file__) + '/../../articles_average_vector.npy')
@@ -89,7 +93,33 @@ class WORDEMBEDDINGQueryService:
         query = self._remove_special_characters(query)
         return re.sub(re.compile('\d'), '', query)
 
-    def query(self, query, result_count: int = 3):
+    def expand_query(self, q, data, count):
+        near = data[:10]
+        far = data[10:]
+        vectors = []
+        for a in near:
+            for b in self._prepare_text(a['abstract']):
+                vectors.append(self.average_vector[self.articles_index_map[b]])
+        q = q + np.mean(vectors, axis=0)
+        vectors = []
+        for a in far:
+            for b in self._prepare_text(a['abstract']):
+                vectors.append(self.average_vector[self.articles_index_map[b]])
+        q = q - np.mean(vectors, axis=0)
+        query_similarity_vector = cosine_similarity(
+            [q],
+            self.average_vector
+        )
+        query_similarity_vector = list(query_similarity_vector[0])
+        results = []
+        for i in range(count):
+            max_value = max(query_similarity_vector)
+            max_index = query_similarity_vector.index(max_value)
+            results.append(self.data[self.articles_ids[self.articles[max_index]]])
+            query_similarity_vector[max_index] = -1
+        return results
+
+    def query(self, query, result_count: int = 3, with_expand=False):
         query = self.prepare_query(query)
         query_vector = self.calculate_average_vector(query)
         query_similarity_vector = cosine_similarity(
@@ -97,8 +127,12 @@ class WORDEMBEDDINGQueryService:
             self.average_vector
         )
         query_similarity_vector = list(query_similarity_vector[0])
-        data = self.find_k_most_relevant(query_similarity_vector, result_count)
-        return self._represent_docs(data)
+        data1 = self.find_k_most_relevant(query_similarity_vector, result_count)
+        data2 = None
+        if with_expand:
+            data2 = self.find_k_most_relevant(query_similarity_vector, len(query_similarity_vector))
+            data2 = self.expand_query(query_vector, data2, result_count)
+        return self._represent_docs(data1), self._represent_docs(data2)
 
     def _represent_docs(self, results):
         return [
